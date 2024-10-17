@@ -1,238 +1,68 @@
 import pyterrier as pt
 import pandas as pd
 import json
-if not pt.started():
-  pt.init()
+import string
+import nltk
+nltk.download('stopwords')
+from nltk.corpus import stopwords # explicitly import stopwords
+stop_words = stopwords.words('english')
+nltk.download('punkt')
+from nltk.tokenize import word_tokenize # explicitly import word_tokenize
+import bs4
+from bs4 import BeautifulSoup
+if not pt.java.started():
+  pt.java.init()
+
 # Reading the answers from the json file and converting them to a list of dictionaries
-answers_list = json.load(open('Answers.json'))
-for answer_document in answers_list:
-  answer_document['docno'] = answer_document.pop('Id')
-  answer_document['body'] = answer_document.pop('Text')
-  answer_document.pop('Score')
-answers_list = answers_list[:1000]
-# Indexing the answer documents
-indexer = pt.IterDictIndexer('./answers_index')
+with open('Answers.json', 'r', encoding='utf-8') as f1:
+    answers_list = json.load(f1)
+with open('topics_1.json', 'r', encoding='utf-8') as f2:
+    topics_1_list = json.load(f2)
+with open('topics_2.json', 'r', encoding='utf-8') as f3:
+    topics_2_list = json.load(f3)
+
+# for testing REMOVE LATER
+answers_list = answers_list[:3]
+
+# fix answers syntax
+answers_list = [{"docno" : answer["Id"], "text" : answer["Text"]} for answer in answers_list]
+
+# CHANGE THIS AROUND TO DO DIFFERENT TESTS
+topics_1_list = [{"qid" : topic["Id"], "query" : topic["Body"]} for topic in topics_1_list]
+topics_2_list = [{"qid" : topic["Id"], "query" : topic["Body"]} for topic in topics_2_list]
+# print(answers_list[0])
+
+
+indexer = pt.IterDictIndexer("./index", overwrite=True)
 index_ref = indexer.index(answers_list)
+# print(index_ref.toString())
 
-# Loading the query file
-topics_1_list = json.load(open('topics_1.json'))
-topics_2_list = json.load(open('topics_2.json'))
+index = pt.IndexFactory.of(index_ref)
+BM25_retriever = pt.terrier.Retriever(index, wmodel="BM25")
+TFIDF_retriever = pt.terrier.Retriever(index, wmodel="TF_IDF")
+# BM25_retriever.search("sudoku")
+# TFIDF_retriever.search("sudoku")
 
-# Creating a list of dictionaries with the query id and the query title for topic 1
-queries_title = []
-for query in topics_1_list:
-  queries_title.append({
-    'qid': query['Id'],
-    'query': query['Title']
-  })
-# Creating a list of dictionaries with the query id and the query body for topic 1
-queries_body = []
-for query in topics_1_list:
-  queries_body.append({
-    'qid': query['Id'],
-    'query': query['Body']
-  })
-# Creating a list of dictionaries with the query id and the query title and body for topic 1
-queries_title_body = []
-for query in topics_1_list:
-  queries_title_body.append({
-    'qid': query['Id'],
-    'query': f"{query['Title']} {query['Body']}"
-  })
+# remove html tags from a string of texts returns another string
+def remove_tags(soup):
+    for data in soup(['style', 'script']):
+        data.decompose()
+    return ' '.join(soup.stripped_strings)
 
-# Creating list of dictionaries with the query id and the query title for topic 2
-queries_title_2 = []
-for query in topics_2_list:
-  queries_title_2.append({
-    'qid': query['Id'],
-    'query': query['Title']
-  })
-# Creating list of dictionaries with the query id and the query body for topic 2
-queries_body_2 = []
-for query in topics_2_list:
-  queries_body_2.append({
-    'qid': query['Id'],
-    'query': query['Body']
-  })
-# Creating list of dictionaries with the query id and the query title and body for topic 2
-queries_title_body_2 = []
-for query in topics_2_list:
-  queries_title_body_2.append({
-    'qid': query['Id'],
-    'query': f"{query['Title']} {query['Body']}"
-  })
+# take a list of words, and a list of stop words, remove any stopwords from word list
+# returns string with no stop words
+def remove_stopwords(word_list):
+    post_removal = [word for word in word_list if not word.lower() in stop_words]
+    return ' '.join(post_removal).strip()
 
-#BM25 Retrieval
-bm25 = pt.BatchRetrieve(index_ref, wmodel="BM25")
-# Topic 1 results
-bm25_query_results_title = bm25.transform(pd.DataFrame(queries_title))
-bm25_query_results_title.to_tsv('bm25_query_results_title.tsv', sep='\t', index=False)
+# cleaning text from the topics and setting up a dataframe to use on the retrievers 
+lst_queries = []
+for item in topics_1_list:
+  lst_queries.append([item['qid'], remove_stopwords(remove_tags(BeautifulSoup(item['query'].lower(), "html.parser")).split()).translate(str.maketrans('', '', string.punctuation))])
+queries = pd.DataFrame(lst_queries, columns=["qid", "query"])
+# print(queries)
+# BM25_retriever(queries)
+# TFIDF_retriever(queries)
 
-bm25_query_results_body = bm25.transform(pd.DataFrame(queries_body))
-bm25_query_results_body.to_tsv('bm25_query_results_body.tsv', sep='\t', index=False)
-
-bm25_query_results_title_body = bm25.transform(pd.DataFrame(queries_title_body))
-bm25_query_results_title_body.to_tsv('bm25_query_results_title_body.tsv', sep='\t', index=False)
-
-# Topic 2 results
-bm25_query_results_title_2 = bm25.transform(pd.DataFrame(queries_title_2))
-bm25_query_results_title_2.to_tsv('bm25_query_results_title_2.tsv', sep='\t', index=False)
-
-bm25_query_results_body_2 = bm25.transform(pd.DataFrame(queries_body_2))
-bm25_query_results_body_2.to_tsv('bm25_query_results_body_2.tsv', sep='\t', index=False)
-
-bm25_query_results_title_body_2 = bm25.transform(pd.DataFrame(queries_title_body_2))
-bm25_query_results_title_body_2.to_tsv('bm25_query_results_title_body_2.tsv', sep='\t', index=False)
-
-#TF-IDF Retrieval
-tfidf = pt.BatchRetrieve(index_ref, wmodel="TF_IDF")
-# Topic 1 results
-tfidf_query_results_title = tfidf.transform(pd.DataFrame(queries_title))
-tfidf_query_results_title.to_tsv('tfidf_query_results_title.tsv', sep='\t', index=False)
-
-tfidf_query_results_body = tfidf.transform(pd.DataFrame(queries_body))
-tfidf_query_results_body.to_tsv('tfidf_query_results_body.tsv', sep='\t', index=False)
-
-tfidf_query_results_title_body = tfidf.transform(pd.DataFrame(queries_title_body))
-tfidf_query_results_title_body.to_tsv('tfidf_query_results_title_body.tsv', sep='\t', index=False)
-# Topic 2 results
-tfidf_query_results_title_2 = tfidf.transform(pd.DataFrame(queries_title_2))
-tfidf_query_results_title_2.to_tsv('tfidf_query_results_title_2.tsv', sep='\t', index=False)
-
-tfidf_query_results_body_2 = tfidf.transform(pd.DataFrame(queries_body_2))
-tfidf_query_results_body_2.to_tsv('tfidf_query_results_body_2.tsv', sep='\t', index=False)
-
-tfidf_query_results_title_body_2 = tfidf.transform(pd.DataFrame(queries_title_body_2))
-tfidf_query_results_title_body_2.to_tsv('tfidf_query_results_title_body_2.tsv', sep='\t', index=False)
-
-
-# Load the QREL file
-qrel_df = pd.read_csv('qrel_1.tsv', sep='\t', header=None, names=['query_id', 'ignore', 'document_id', 'relevance_level'])
-
-# Drop the 'ignore' column as it's not needed
-qrel_df.drop(columns=['ignore'], inplace=True)
-
-# Load the retrieval results from TSV BM25 - Topic 1 - might not even be necessary to grab from tsv 
-bm25_query_results_title_df = pd.read_csv('bm25_query_results_title.tsv', sep='\t')
-bm25_query_results_title_df.rename(columns={'qid': 'query_id', 'docno': 'document_id'}, inplace=True)
-bm25_query_results_title_comparison_df = pd.merge(bm25_query_results_title_df, qrel_df, on=['query_id', 'document_id'], how='left')
-
-bm25_query_results_body_df = pd.read_csv('bm25_query_results_body.tsv', sep='\t')
-bm25_query_results_body_df.rename(columns={'qid': 'query_id', 'docno': 'document_id'}, inplace=True)
-bm25_query_results_body_comparison_df = pd.merge(bm25_query_results_body_df, qrel_df, on=['query_id', 'document_id'], how='left')
-
-bm25_query_results_title_body_df = pd.read_csv('bm25_query_results_title_body.tsv', sep='\t')
-bm25_query_results_title_body_df.rename(columns={'qid': 'query_id', 'docno': 'document_id'}, inplace=True)
-bm25_query_results_title_body_comparison_df = pd.merge(bm25_query_results_title_body_df, qrel_df, on=['query_id', 'document_id'], how='left')
-
-# Load the retrieval results from TSV BM25 - Topic 2 - might not even be necessary to grab from tsv
-bm25_query_results_title_2_df = pd.read_csv('bm25_query_results_title_2.tsv', sep='\t')
-bm25_query_results_title_2_df.rename(columns={'qid': 'query_id', 'docno': 'document_id'}, inplace=True)
-bm25_query_results_title_2_comparison_df = pd.merge(bm25_query_results_title_2_df, qrel_df, on=['query_id', 'document_id'], how='left')
-
-bm25_query_results_body_2_df = pd.read_csv('bm25_query_results_body_2.tsv', sep='\t')
-bm25_query_results_body_2_df.rename(columns={'qid': 'query_id', 'docno': 'document_id'}, inplace=True)
-bm25_query_results_body_2_comparison_df = pd.merge(bm25_query_results_body_2_df, qrel_df, on=['query_id', 'document_id'], how='left')
-
-bm25_query_results_title_body_2_df = pd.read_csv('bm25_query_results_title_body_2.tsv', sep='\t')
-bm25_query_results_title_body_2_df.rename(columns={'qid': 'query_id', 'docno': 'document_id'}, inplace=True)
-bm25_query_results_title_body_2_comparison_df = pd.merge(bm25_query_results_title_body_2_df, qrel_df, on=['query_id', 'document_id'], how='left')
-
-# Load the retrieval results from TSV TF-IDF - Topic 1 - might not even be necessary to grab from tsv
-tfidf_query_results_title_df = pd.read_csv('tfidf_query_results_title.tsv', sep='\t')
-tfidf_query_results_title_df.rename(columns={'qid': 'query_id', 'docno': 'document_id'}, inplace=True)
-tfidf_query_results_title_comparison_df = pd.merge(tfidf_query_results_title_df, qrel_df, on=['query_id', 'document_id'], how='left')
-
-tfidf_query_results_body_df = pd.read_csv('tfidf_query_results_body.tsv', sep='\t')
-tfidf_query_results_body_df.rename(columns={'qid': 'query_id', 'docno': 'document_id'}, inplace=True)
-tfidf_query_results_body_comparison_df = pd.merge(tfidf_query_results_body_df, qrel_df, on=['query_id', 'document_id'], how='left')
-
-tfidf_query_results_title_body_df = pd.read_csv('tfidf_query_results_title_body.tsv', sep='\t')
-tfidf_query_results_title_body_df.rename(columns={'qid': 'query_id', 'docno': 'document_id'}, inplace=True)
-tfidf_query_results_title_body_comparison_df = pd.merge(tfidf_query_results_title_body_df, qrel_df, on=['query_id', 'document_id'], how='left')
-
-# Load the retrieval results from TSV TF-IDF - Topic 2 - might not even be necessary to grab from tsv
-tfidf_query_results_title_2_df = pd.read_csv('tfidf_query_results_title_2.tsv', sep='\t')
-tfidf_query_results_title_2_df.rename(columns={'qid': 'query_id', 'docno': 'document_id'}, inplace=True)
-tfidf_query_results_title_2_comparison_df = pd.merge(tfidf_query_results_title_2_df, qrel_df, on=['query_id', 'document_id'], how='left')
-
-tfidf_query_results_body_2_df = pd.read_csv('tfidf_query_results_body_2.tsv', sep='\t')
-tfidf_query_results_body_2_df.rename(columns={'qid': 'query_id', 'docno': 'document_id'}, inplace=True)
-tfidf_query_results_body_2_comparison_df = pd.merge(tfidf_query_results_body_2_df, qrel_df, on=['query_id', 'document_id'], how='left')
-
-tfidf_query_results_title_body_2_df = pd.read_csv('tfidf_query_results_title_body_2.tsv', sep='\t')
-tfidf_query_results_title_body_2_df.rename(columns={'qid': 'query_id', 'docno': 'document_id'}, inplace=True)
-tfidf_query_results_title_body_2_comparison_df = pd.merge(tfidf_query_results_title_body_2_df, qrel_df, on=['query_id', 'document_id'], how='left')
-
-# Evaluation Metrics
-metrics = {
-    'nDCG@5': pt.metrics.NDCG(k=5),
-    'nDCG@10': pt.metrics.NDCG(k=10),
-    'p@5': pt.metrics.Precision(k=5),
-    'p@10': pt.metrics.Precision(k=10),
-    'MAP': pt.metrics.MeanAveragePrecision(),
-    'bpref': pt.metrics.BPref()
-}
-
-def evaluate_model(results_df, qrel_df):
-    # Replace NaN relevance_level with 0 (not relevant) for easier calculations
-    results_df['relevance_level'].fillna(0, inplace=True)
-
-    # Create a binary column indicating whether the document is relevant
-    results_df['is_relevant'] = results_df['relevance_level'].apply(lambda x: 1 if x > 0 else 0)
-
-    # Calculate metrics
-    evaluation_results = {}
-    
-    for metric_name, metric in metrics.items():
-        evaluation_results[metric_name] = metric.evaluate(results_df[['query_id', 'document_id', 'is_relevant']])
-    
-    return evaluation_results
-
-# Evaluate BM25 Results Topic 1
-bm25_results = {
-    'title': evaluate_model(bm25_query_results_title_comparison_df, qrel_df),
-    'body': evaluate_model(bm25_query_results_body_comparison_df, qrel_df),
-    'title_body': evaluate_model(bm25_query_results_title_body_comparison_df, qrel_df)
-}
-
-# Evaluate BM25 Results Topic 2
-bm25_results_2 = {
-    'title': evaluate_model(bm25_query_results_title_2_comparison_df, qrel_df),
-    'body': evaluate_model(bm25_query_results_body_2_comparison_df, qrel_df),
-    'title_body': evaluate_model(bm25_query_results_title_body_2_comparison_df, qrel_df)
-}
-
-# Evaluate TF-IDF Results Topic 1
-tfidf_results = {
-    'title': evaluate_model(tfidf_query_results_title_comparison_df, qrel_df),
-    'body': evaluate_model(tfidf_query_results_body_comparison_df, qrel_df),
-    'title_body': evaluate_model(tfidf_query_results_title_body_comparison_df, qrel_df)
-}
-
-# Evaluate TF-IDF Results Topic 2
-tfidf_results_2 = {
-    'title': evaluate_model(tfidf_query_results_title_2_comparison_df, qrel_df),
-    'body': evaluate_model(tfidf_query_results_body_2_comparison_df, qrel_df),
-    'title_body': evaluate_model(tfidf_query_results_title_body_2_comparison_df, qrel_df)
-}
-
-# Print Evaluation Results - Topic 1
-print("BM25 Evaluation Results Topic 1:")
-for k, v in bm25_results.items():
-    print(f"{k}: {v}")
-
-print("\nTF-IDF Evaluation Results Topic 1:")
-for k, v in tfidf_results.items():
-    print(f"{k}: {v}")
-
-# Print Evaluation Results - Topic 2
-print("\nBM25 Evaluation Results Topic 2:")
-for k, v in bm25_results_2.items():
-    print(f"{k}: {v}")
-
-print("\nTF-IDF Evaluation Results Topic 2:")
-for k, v in tfidf_results_2.items():
-    print(f"{k}: {v}")
-
-
+pt.io.write_results(BM25_retriever(queries), 'BM25_results.txt', format='trec')
+pt.io.write_results(TFIDF_retriever(queries), 'TFIDF_results.txt', format='trec')
