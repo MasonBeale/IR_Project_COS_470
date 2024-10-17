@@ -22,7 +22,7 @@ with open('topics_2.json', 'r', encoding='utf-8') as f3:
     topics_2_list = json.load(f3)
 
 # for testing REMOVE LATER
-answers_list = answers_list[:3]
+# answers_list = answers_list[:1000]
 
 # fix answers syntax
 answers_list = [{"docno" : answer["Id"], "text" : answer["Text"]} for answer in answers_list]
@@ -55,7 +55,6 @@ def remove_stopwords(word_list):
     post_removal = [word for word in word_list if not word.lower() in stop_words]
     return ' '.join(post_removal).strip()
 
-# cleaning text from the topics and setting up a dataframe to use on the retrievers 
 lst_queries = []
 for item in topics_1_list:
   lst_queries.append([item['qid'], remove_stopwords(remove_tags(BeautifulSoup(item['query'].lower(), "html.parser")).split()).translate(str.maketrans('', '', string.punctuation))])
@@ -64,6 +63,40 @@ queries = pd.DataFrame(lst_queries, columns=["qid", "query"])
 # BM25_retriever(queries)
 # TFIDF_retriever(queries)
 
-# put results into files
-pt.io.write_results(BM25_retriever(queries), 'BM25_results.txt', format='trec')
-pt.io.write_results(TFIDF_retriever(queries), 'TFIDF_results.txt', format='trec')
+# remove html tags from a string of texts returns another string
+def remove_tags(soup):
+    for data in soup(['style', 'script']):
+        data.decompose()
+    return ' '.join(soup.stripped_strings)
+
+# take a list of words, and a list of stop words, remove any stopwords from word list
+# returns string with no stop words
+def remove_stopwords(word_list):
+    post_removal = [word for word in word_list if not word.lower() in stop_words]
+    return ' '.join(post_removal).strip()
+
+lst_queries = []
+for item in topics_1_list:
+  lst_queries.append([item['qid'], remove_stopwords(remove_tags(BeautifulSoup(item['query'].lower(), "html.parser")).split()).translate(str.maketrans('', '', string.punctuation))])
+queries = pd.DataFrame(lst_queries, columns=["qid", "query"])
+# print(queries)
+# BM25_retriever(queries)
+# TFIDF_retriever(queries)
+
+with open('qrel_1.tsv', 'r', encoding='utf-8') as f4:
+    qrels = pd.read_csv(f4, sep="\t", header=None, names=["qid", "iter", "docno", "label"])
+qrels["qid"] = qrels["qid"].astype(str)
+qrels["docno"] = qrels["docno"].astype(str)
+results = pt.Experiment(
+    [BM25_retriever, TFIDF_retriever],
+    queries,
+    qrels,
+    eval_metrics=[
+        "ndcg_cut_5", "ndcg_cut_10", "ndcg",   # nDCG@5, nDCG@10, nDCG@all
+        "P_5", "P_10", "P",                    # Precision@5, @10, @all
+        "map",                                 # Mean Average Precision
+        "bpref"                                # Binary Preference
+    ],
+    names=['BM25', 'TFIDF']
+)
+print(results)
