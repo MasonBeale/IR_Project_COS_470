@@ -64,5 +64,6 @@ queries = pd.DataFrame(lst_queries, columns=["qid", "query"])
 # BM25_retriever(queries)
 # TFIDF_retriever(queries)
 
+# put results into files
 pt.io.write_results(BM25_retriever(queries), 'BM25_results.txt', format='trec')
 pt.io.write_results(TFIDF_retriever(queries), 'TFIDF_results.txt', format='trec')
